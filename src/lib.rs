@@ -24,19 +24,19 @@ impl ServiceState {
     /// Returns the corresponding exit code for this state.
     pub fn exit_code(&self) -> i32 {
         match self {
-            ServiceState::Ok => 0,
-            ServiceState::Warning => 1,
-            ServiceState::Critical => 2,
-            ServiceState::Unknown => 3,
+            ServiceState::Ok        => 0,
+            ServiceState::Warning   => 1,
+            ServiceState::Critical  => 2,
+            ServiceState::Unknown   => 3,
         }
     }
 
     fn order_number(&self) -> u8 {
         match self {
-            ServiceState::Ok => 0,
-            ServiceState::Unknown => 1,
-            ServiceState::Warning => 2,
-            ServiceState::Critical => 3,
+            ServiceState::Ok        => 0,
+            ServiceState::Unknown   => 1,
+            ServiceState::Warning   => 2,
+            ServiceState::Critical  => 3,
         }
     }
 }
@@ -50,10 +50,10 @@ impl PartialOrd for ServiceState {
 impl fmt::Display for ServiceState {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let s = match self {
-            ServiceState::Ok => "OK",
-            ServiceState::Warning => "WARNING",
-            ServiceState::Critical => "CRITICAL",
-            ServiceState::Unknown => "UNKNOWN",
+            ServiceState::Ok        => "OK",
+            ServiceState::Warning   => "WARNING",
+            ServiceState::Critical  => "CRITICAL",
+            ServiceState::Unknown   => "UNKNOWN",
         };
 
         f.write_str(s)
@@ -68,12 +68,12 @@ impl FromStr for ServiceState {
     type Err = ServiceStateFromStrError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "ok" => Ok(ServiceState::Ok),
-            "warning" => Ok(ServiceState::Warning),
-            "critical" => Ok(ServiceState::Critical),
-            "unknown" => Ok(ServiceState::Unknown),
-            _ => Err(ServiceStateFromStrError),
+        match s.to_uppercase().as_str() {
+            "OK"        => Ok(ServiceState::Ok),
+            "WARNING"   => Ok(ServiceState::Warning),
+            "CRITICAL"  => Ok(ServiceState::Critical),
+            "UNKNOWN"   => Ok(ServiceState::Unknown),
+            _           => Err(ServiceStateFromStrError),
         }
     }
 }
@@ -89,8 +89,35 @@ impl From<&TriggerIfValue> for Ordering {
     fn from(v: &TriggerIfValue) -> Self {
         match v {
             TriggerIfValue::Greater => Ordering::Greater,
-            TriggerIfValue::Less => Ordering::Less,
+            TriggerIfValue::Less    => Ordering::Less,
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum MetricUom {
+    NoUnit,
+    Seconds,
+    Percentage,
+    Bytes,
+    Counter,
+}
+
+impl fmt::Display for MetricUom {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            MetricUom::NoUnit       => "",
+            MetricUom::Seconds      => "s",
+            MetricUom::Percentage   => "%",
+            MetricUom::Bytes        => "B",
+            MetricUom::Counter      => "c",
+        })
+    }
+}
+
+impl Default for MetricUom {
+    fn default() -> Self {
+        MetricUom::NoUnit
     }
 }
 
@@ -98,24 +125,34 @@ impl From<&TriggerIfValue> for Ordering {
 /// minimum, maximum. Can also be set to ignore thresholds and have a fixed [ServiceState].
 #[derive(Debug, Clone)]
 pub struct Metric<T> {
-    name: String,
-    value: T,
-    thresholds: Option<(T, T, TriggerIfValue)>,
-    min: Option<T>,
-    max: Option<T>,
-    fixed_state: Option<ServiceState>,
+    name:           String,
+    value:          T,
+    uom:            MetricUom,
+    thresholds:     Option<(T, T, TriggerIfValue)>,
+    min:            Option<T>,
+    max:            Option<T>,
+    fixed_state:    Option<ServiceState>,
 }
 
 impl<T> Metric<T> {
     pub fn new(name: impl Into<String>, value: T) -> Self {
         Self {
-            name: name.into(),
+            name:           name.into(),
             value,
-            thresholds: Default::default(),
-            min: Default::default(),
-            max: Default::default(),
-            fixed_state: Default::default(),
+            uom:            Default::default(),
+            thresholds:     Default::default(),
+            min:            Default::default(),
+            max:            Default::default(),
+            fixed_state:    Default::default(),
         }
+    }
+
+    pub fn with_uom(
+        mut self,
+        uom: MetricUom,
+    ) -> Self {
+        self.uom = uom;
+        self
     }
 
     pub fn with_thresholds(
@@ -148,24 +185,31 @@ impl<T> Metric<T> {
 
 /// Represents a single performance metric.
 pub struct PerfData<T> {
-    name: String,
-    value: T,
-    warning: Option<T>,
-    critical: Option<T>,
-    minimum: Option<T>,
-    maximum: Option<T>,
+    name:       String,
+    value:      T,
+    uom:        MetricUom,
+    warning:    Option<T>,
+    critical:   Option<T>,
+    minimum:    Option<T>,
+    maximum:    Option<T>,
 }
 
 impl<T: ToPerfString> PerfData<T> {
     pub fn new(name: impl Into<String>, value: T) -> Self {
         Self {
-            name: name.into(),
+            name:       name.into(),
             value,
-            warning: Default::default(),
-            critical: Default::default(),
-            minimum: Default::default(),
-            maximum: Default::default(),
+            uom:        Default::default(),
+            warning:    Default::default(),
+            critical:   Default::default(),
+            minimum:    Default::default(),
+            maximum:    Default::default(),
         }
+    }
+
+    pub fn with_uom(mut self, uom: MetricUom) -> Self {
+        self.uom = uom;
+        self
     }
 
     pub fn with_thresholds(mut self, warning: T, critical: T) -> Self {
@@ -190,6 +234,7 @@ impl<T: ToPerfString> From<PerfData<T>> for PerfString {
         let s = PerfString::new(
             &perf_data.name,
             &perf_data.value,
+            &perf_data.uom,
             perf_data.warning.as_ref(),
             perf_data.critical.as_ref(),
             perf_data.minimum.as_ref(),
@@ -205,24 +250,25 @@ pub struct PerfString(String);
 
 impl PerfString {
     pub fn new<T>(
-        name: &str,
-        value: &T,
-        warning: Option<&T>,
-        critical: Option<&T>,
-        minimum: Option<&T>,
-        maximum: Option<&T>,
+        name:       &str,
+        value:      &T,
+        uom:        &MetricUom,
+        warning:    Option<&T>,
+        critical:   Option<&T>,
+        minimum:    Option<&T>,
+        maximum:    Option<&T>,
     ) -> Self
     where
         T: ToPerfString,
     {
-        let value = value.to_perf_string();
-        let warning = warning.map_or_else(|| "".to_owned(), |v| v.to_perf_string());
-        let critical = critical.map_or_else(|| "".to_owned(), |v| v.to_perf_string());
-        let minimum = minimum.map_or_else(|| "".to_owned(), |v| v.to_perf_string());
-        let maximum = maximum.map_or_else(|| "".to_owned(), |v| v.to_perf_string());
+        let value       = value.to_perf_string();
+        let warning     = warning.map_or_else(|| "".to_owned(), |v| v.to_perf_string());
+        let critical    = critical.map_or_else(|| "".to_owned(), |v| v.to_perf_string());
+        let minimum     = minimum.map_or_else(|| "".to_owned(), |v| v.to_perf_string());
+        let maximum     = maximum.map_or_else(|| "".to_owned(), |v| v.to_perf_string());
         PerfString(format!(
-            "'{}'={};{};{};{};{}",
-            name, value, warning, critical, minimum, maximum
+            "{}={}{};{};{};{};{}",
+            name, value, uom, warning, critical, minimum, maximum
         ))
     }
 }
@@ -323,6 +369,7 @@ impl<T: PartialOrd + ToPerfString> From<Metric<T>> for CheckResult {
             PerfString::new(
                 &metric.name,
                 &metric.value,
+                &metric.uom,
                 warning,
                 critical,
                 metric.min.as_ref(),
@@ -370,24 +417,53 @@ impl_to_perf_string!(f64);
 
 /// Represents a single service / resource from the perspective of Icinga.
 pub struct Resource {
-    name: String,
-    results: Vec<CheckResult>,
-    fixed_state: Option<ServiceState>,
-    description: Option<String>,
+    prefix:         Option<String>,
+    results:        Vec<CheckResult>,
+    fixed_state:    Option<ServiceState>,
+    print_state:    bool,
+    delim:          String,  
+    description:    Option<String>,
 }
 
 impl Resource {
-    pub fn new(name: impl Into<String>) -> Self {
+    pub fn new() -> Self {
         Self {
-            name: name.into(),
-            results: Default::default(),
-            fixed_state: Default::default(),
-            description: Default::default(),
+            prefix:         None,
+            results:        vec![],
+            fixed_state:    None,
+            print_state:    true,
+            delim:          ": ".into(),
+            description:    None,
         }
+    }
+
+    pub fn with_prefix(mut self, prefix: impl Into<String>) -> Self {
+        self.prefix = Some(prefix.into());
+        self
     }
 
     pub fn with_fixed_state(mut self, state: ServiceState) -> Self {
         self.fixed_state = Some(state);
+        self
+    }
+
+    pub fn with_print_state(mut self, print_state: bool) -> Self {
+        self.print_state = print_state;
+        self
+    }
+
+    pub fn with_delim(mut self, delim: impl Into<String>) -> Self {
+        self.delim = delim.into();
+        self
+    }
+
+    pub fn with_state(mut self, state: ServiceState) -> Self {
+        let result = CheckResult {
+            state:          Some(state),
+            message:        None,
+            perf_string:    None,
+        };
+        self.push_result(result);
         self
     }
 
@@ -443,12 +519,16 @@ impl Resource {
 
         let description = {
             let mut s = String::new();
-            s.push_str(&self.name);
-            s.push_str(" is ");
-            s.push_str(&state.to_string());
+            if let Some(prefix) = &self.prefix {
+                s.push_str(prefix);
+                s.push(' ');
+            }
+            if self.print_state {
+                s.push_str(&state.to_string());
+                s.push_str(&self.delim);
+                }
 
             if let Some(description) = self.description {
-                s.push_str(": ");
                 s.push_str(description.trim());
             }
             s
@@ -475,7 +555,7 @@ mod tests {
 
     #[test]
     fn test_resource_nagios_result() {
-        let (state, s) = Resource::new("foo")
+        let (state, s) = Resource::new()
             .with_description("i am bar")
             .with_result(
                 CheckResult::new()
@@ -493,7 +573,7 @@ mod tests {
 
     #[test]
     fn test_resource_with_fixed_state() {
-        let (state, _) = Resource::new("foo")
+        let (state, _) = Resource::new()
             .with_fixed_state(ServiceState::Critical)
             .nagios_result();
         assert_eq!(state, ServiceState::Critical);
@@ -501,7 +581,7 @@ mod tests {
 
     #[test]
     fn test_resource_with_ok_result() {
-        let (state, msg) = Resource::new("foo")
+        let (state, msg) = Resource::new()
             .with_result(
                 CheckResult::new()
                     .with_message("test")
@@ -520,8 +600,8 @@ mod tests {
 
     #[test]
     fn test_perf_string_new() {
-        let s = PerfString::new("foo", &12, Some(&42), None, None, Some(&60));
-        assert_eq!(&s.0, "'foo'=12;42;;;60")
+        let s = PerfString::new("foo", &12, &MetricUom::Bytes, Some(&42), None, None, Some(&60));
+        assert_eq!(&s.0, "foo=12B;42;;;60")
     }
 
     #[test]

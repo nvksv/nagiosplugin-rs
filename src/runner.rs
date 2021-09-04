@@ -72,7 +72,7 @@ mod tests {
                 assert!(false);
                 (ServiceState::Unknown, EmptyError {})
             })
-            .safe_run(|| Ok(Resource::new("test")));
+            .safe_run(|| Ok(Resource::new()));
 
         matches!(result, RunnerResult::Ok(_));
     }
